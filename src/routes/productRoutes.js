@@ -14,10 +14,31 @@ const router = express.Router();
 
 // Validation rules
 const productValidation = [
-  body('product_code').trim().isLength({ min: 1 }).withMessage('Product code is required'),
-  body('name').trim().isLength({ min: 2 }).withMessage('Product name must be at least 2 characters'),
-  body('category_id').isUUID().withMessage('Valid category ID is required'),
-  body('price').isNumeric().withMessage('Price must be a number')
+  body('name').trim().isLength({ min: 2 }).withMessage('Product name is required'),
+  // Allow sku or product_code
+  body().custom((value, { req }) => {
+    if (!req.body.sku && !req.body.product_code) {
+      throw new Error('Product SKU/Code is required');
+    }
+    return true;
+  }),
+  // Allow categoryId or category_id
+  body().custom((value, { req }) => {
+    const catId = req.body.categoryId || req.body.category_id;
+    if (!catId) {
+      throw new Error('Category is required');
+    }
+    // Simple regex check for UUID if you want, or just presence
+    return true;
+  }),
+  // Check price (sellingPrice or price)
+  body().custom((value, { req }) => {
+    const price = req.body.sellingPrice || req.body.price || req.body.base_price;
+    if (price === undefined || price === null || isNaN(price)) {
+      throw new Error('Price must be a number');
+    }
+    return true;
+  })
 ];
 
 const idValidation = [

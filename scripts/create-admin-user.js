@@ -24,13 +24,11 @@ async function createAdminUser() {
       return;
     }
 
-    // Hash password
-    const hashedPassword = await bcrypt.hash('admin123', 12);
-
     // Create admin user
+    // Note: Password will be hashed by the User model hook
     const adminUser = await User.create({
       email: 'admin@garmentims.com',
-      password_hash: hashedPassword,
+      password_hash: 'admin123',
       full_name: 'System Administrator',
       phone: '+91-9876543200',
       is_active: true,

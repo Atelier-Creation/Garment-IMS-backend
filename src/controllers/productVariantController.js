@@ -184,14 +184,19 @@ const productVariantController = {
   async createProductVariant(req, res) {
     try {
       const {
-        productId,
+        productId: pid,
+        product_id,
         sku,
         size,
         color,
         barcode,
         mrp,
-        costPrice
+        costPrice,
+        cost_price
       } = req.body;
+
+      const productId = pid || product_id;
+      const finalCostPrice = costPrice || cost_price;
 
       // Validate required fields
       if (!productId) {
@@ -229,7 +234,7 @@ const productVariantController = {
         color,
         barcode,
         mrp,
-        cost_price: costPrice
+        cost_price: finalCostPrice
       });
 
       // Fetch created variant with associations
@@ -273,11 +278,11 @@ const productVariantController = {
 
       // Check if SKU already exists (if being updated)
       if (updateData.sku && updateData.sku !== productVariant.sku) {
-        const existingVariant = await ProductVariant.findOne({ 
-          where: { 
+        const existingVariant = await ProductVariant.findOne({
+          where: {
             sku: updateData.sku,
             id: { [Op.ne]: id }
-          } 
+          }
         });
         if (existingVariant) {
           return res.status(400).json({
@@ -328,7 +333,7 @@ const productVariantController = {
 
       // Check if variant has stock
       const stockCount = await FinishedGoodsStock.count({
-        where: { 
+        where: {
           variant_id: id,
           qty: { [Op.gt]: 0 }
         }

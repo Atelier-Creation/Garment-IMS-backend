@@ -12,11 +12,12 @@ async function fixAdminRolePermissions() {
       return;
     }
 
-    // Get the missing permissions
-    const missingPermissionCodes = [
-      'role.view', 'role.create', 'role.update', 'role.delete',
-      'permission.view', 'permission.create', 'permission.update', 'permission.delete'
-    ];
+    // Get ALL permissions
+    const permissions = await Permission.findAll();
+    const permissionCodes = permissions.map(p => p.code);
+
+    // Use ALL permission codes
+    const missingPermissionCodes = permissionCodes;
 
     const missingPermissions = await Permission.findAll({
       where: { code: missingPermissionCodes }

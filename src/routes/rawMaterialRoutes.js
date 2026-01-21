@@ -17,10 +17,29 @@ const router = express.Router();
 // Validation rules
 const rawMaterialValidation = [
   body('name').trim().isLength({ min: 2 }).withMessage('Raw material name must be at least 2 characters'),
-  body('sku').trim().isLength({ min: 2 }).withMessage('SKU must be at least 2 characters'),
-  body('categoryId').isUUID().withMessage('Valid category ID is required'),
-  body('unit').trim().isLength({ min: 1 }).withMessage('Unit is required'),
-  body('unitPrice').isFloat({ min: 0 }).withMessage('Unit price must be non-negative'),
+  // Allow sku or material_code
+  body().custom((value, { req }) => {
+    if (!req.body.sku && !req.body.material_code) {
+      throw new Error('SKU/Material Code is required');
+    }
+    return true;
+  }),
+  body('categoryId').optional().isUUID().withMessage('Valid category ID is required'),
+  // Allow unit or uom
+  body().custom((value, { req }) => {
+    if (!req.body.unit && !req.body.uom) {
+      throw new Error('Unit (UOM) is required');
+    }
+    return true;
+  }),
+  // Allow unitPrice or average_cost
+  body().custom((value, { req }) => {
+    const price = req.body.unitPrice || req.body.average_cost;
+    if (price === undefined || price === null || isNaN(price) || price < 0) {
+      throw new Error('Price/Cost must be non-negative');
+    }
+    return true;
+  }),
   body('reorderLevel').optional().isFloat({ min: 0 }),
   body('maxStockLevel').optional().isFloat({ min: 0 })
 ];

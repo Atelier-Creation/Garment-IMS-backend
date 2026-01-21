@@ -16,7 +16,13 @@ const router = express.Router();
 
 // Validation rules
 const productVariantValidation = [
-  body('productId').isUUID().withMessage('Valid product ID is required'),
+  body().custom((value, { req }) => {
+    const pid = req.body.productId || req.body.product_id;
+    if (!pid || pid.toString().length === 0) {
+      throw new Error('Valid product ID is required');
+    }
+    return true;
+  }),
   body('sku').optional().trim().isLength({ min: 1 }),
   body('size').optional().trim(),
   body('color').optional().trim(),

@@ -60,7 +60,7 @@ const getProducts = async (req, res) => {
 const getProductById = async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     const product = await Product.findByPk(id, {
       include: [
         {
@@ -101,16 +101,32 @@ const getProductById = async (req, res) => {
 
 const createProduct = async (req, res) => {
   try {
-    const { product_code, name, description, category_id, sub_category_id, price } = req.body;
-
-    const product = await Product.create({
-      product_code,
-      name,
+    const {
+      product_code, sku,
+      name, product_name,
       description,
-      category_id,
-      sub_category_id,
-      price
-    });
+      category_id, categoryId,
+      sub_category_id, subCategoryId,
+      price, sellingPrice, base_price,
+      brand, fabric, gender, season // Add other potential fields
+    } = req.body;
+
+    // Map to model fields
+    // Ensure product_name is populated from name
+    const payload = {
+      product_code: product_code || sku,
+      product_name: product_name || name,
+      description: description,
+      category_id: category_id || categoryId,
+      sub_category_id: sub_category_id || subCategoryId,
+      base_price: price || sellingPrice || base_price || 0,
+      brand,
+      fabric,
+      gender,
+      season
+    };
+
+    const product = await Product.create(payload);
 
     const productWithRelations = await Product.findByPk(product.id, {
       include: [
