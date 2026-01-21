@@ -28,7 +28,7 @@ app.use('/api/', limiter);
 
 // CORS configuration
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+  origin: process.env.CORS_ORIGIN || '*',
   credentials: true
 }));
 
@@ -72,24 +72,24 @@ const startServer = async () => {
   try {
     await sequelize.authenticate();
     console.log('Database connection established successfully.');
-    
+
     // Auto-create tables and seed data in development
     if (process.env.NODE_ENV === 'development') {
       console.log('Running database migrations...');
       const { exec } = require('child_process');
       const { promisify } = require('util');
       const execAsync = promisify(exec);
-      
+
       try {
         // Run migrations
         await execAsync('npx sequelize-cli db:migrate');
         console.log('Database migrations completed successfully.');
-        
+
         // Check if we need to seed data
         const roleCount = await sequelize.query('SELECT COUNT(*) as count FROM roles', {
           type: sequelize.QueryTypes.SELECT
         });
-        
+
         if (roleCount[0].count === 0) {
           console.log('Seeding initial data...');
           await execAsync('npx sequelize-cli db:seed:all');
@@ -102,7 +102,7 @@ const startServer = async () => {
         console.log('Database synchronized using Sequelize sync.');
       }
     }
-    
+
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT} in ${process.env.NODE_ENV} mode`);
       console.log(`Health check: http://localhost:${PORT}/health`);
