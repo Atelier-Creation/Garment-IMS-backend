@@ -8,6 +8,11 @@ module.exports = {
     host: process.env.DB_HOST || 'localhost',
     port: process.env.DB_PORT || 3306,
     dialect: 'mysql',
+    dialectOptions: {
+    ssl: {
+      rejectUnauthorized: false // This is often required for managed providers
+    }
+  },
     logging: console.log,
     pool: {
       max: 10,
