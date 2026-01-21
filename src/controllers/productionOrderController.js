@@ -1,0 +1,461 @@
+const { ProductionOrder, Product, ProductVariant, BOM, BOMItem, RawMaterial, RawMaterialBatch, ProductionConsumption, ProductionOutput, FinishedGoodsStock, Branch, User } = require('../models');
+const { Op } = require('sequelize');
+const { v4: uuidv4 } = require('uuid');
+
+const getProductionOrders = async (req, res) => {
+  try {
+    const { page = 1, limit = 10, search, status, product_id, branch_id } = req.query;
+    const offset = (page - 1) * limit;
+
+    let whereClause = {};
+    if (search) {
+      whereClause[Op.or] = [
+        { production_code: { [Op.like]: `%${search}%` } }
+      ];
+    }
+    if (status) {
+      whereClause.status = status;
+    }
+    if (product_id) {
+      whereClause.product_id = product_id;
+    }
+    if (branch_id) {
+      whereClause.branch_id = branch_id;
+    }
+
+    const { count, rows } = await ProductionOrder.findAndCountAll({
+      where: whereClause,
+      include: [
+        { model: Product, attributes: ['id', 'product_name', 'product_code'], required: false },
+        { model: ProductVariant, attributes: ['id', 'sku', 'size', 'color'], required: false },
+        { model: BOM, attributes: ['id', 'name', 'version'], required: false },
+        { model: Branch, attributes: ['id', 'name'], required: false }
+      ],
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+      order: [['created_at', 'DESC']]
+    });
+
+    res.json({
+      success: true,
+      data: {
+        production_orders: rows,
+        pagination: {
+          total: count,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          pages: Math.ceil(count / limit)
+        }
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch production orders',
+      error: error.message
+    });
+  }
+};
+
+const getProductionOrderById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const productionOrder = await ProductionOrder.findByPk(id, {
+      include: [
+        { model: Product, attributes: ['id', 'product_name', 'product_code'] },
+        { model: ProductVariant, required: false },
+        { 
+          model: BOM,
+          include: [{
+            model: BOMItem,
+            include: [{ model: RawMaterial }]
+          }],
+          required: false
+        },
+        { model: Branch, attributes: ['id', 'name'], required: false },
+        {
+          model: ProductionConsumption,
+          include: [
+            { model: RawMaterial },
+            { model: RawMaterialBatch }
+          ],
+          required: false
+        },
+        {
+          model: ProductionOutput,
+          include: [{ model: ProductVariant }],
+          required: false
+        }
+      ]
+    });
+
+    if (!productionOrder) {
+      return res.status(404).json({
+        success: false,
+        message: 'Production order not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: { production_order: productionOrder }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch production order',
+      error: error.message
+    });
+  }
+};
+
+const createProductionOrder = async (req, res) => {
+  try {
+    const {
+      product_id,
+      variant_id,
+      bom_id,
+      branch_id,
+      planned_qty,
+      start_at,
+      end_at,
+      notes
+    } = req.body;
+
+    console.log('Creating production order with:', { product_id, bom_id, branch_id, planned_qty });
+
+    // Validate BOM exists and belongs to product
+    const bom = await BOM.findOne({
+      where: { id: bom_id, product_id },
+      include: [{
+        model: BOMItem,
+        include: [{ model: RawMaterial }]
+      }]
+    });
+
+    console.log('BOM found:', bom ? 'Yes' : 'No');
+    if (bom) {
+      console.log('BOM details:', { id: bom.id, product_id: bom.product_id, name: bom.name });
+    }
+
+    if (!bom) {
+      return res.status(400).json({
+        success: false,
+        message: 'BOM not found or does not belong to the specified product'
+      });
+    }
+
+    // Generate production code
+    const orderCount = await ProductionOrder.count();
+    const production_code = `PRO${String(orderCount + 1).padStart(6, '0')}`;
+
+    // Check raw material availability across all branches
+    const materialRequirements = [];
+    for (const bomItem of bom.BOMItems) {
+      const requiredQuantity = bomItem.qty_per_unit * planned_qty;
+      
+      // Get available stock from ALL branches
+      const availableStock = await RawMaterialBatch.sum('qty', {
+        where: {
+          raw_material_id: bomItem.raw_material_id,
+          qty: { [Op.gt]: 0 }
+        }
+      }) || 0;
+
+      materialRequirements.push({
+        raw_material_id: bomItem.raw_material_id,
+        raw_material_name: bomItem.RawMaterial.name,
+        required_quantity: requiredQuantity,
+        available_quantity: availableStock,
+        shortage: Math.max(0, requiredQuantity - availableStock)
+      });
+    }
+
+    // Create production order
+    const productionOrder = await ProductionOrder.create({
+      production_code,
+      product_id,
+      variant_id,
+      bom_id,
+      branch_id,
+      planned_qty,
+      produced_qty: 0,
+      start_at,
+      end_at,
+      status: 'PLANNED',
+      created_by: req.user.id
+    });
+
+    // Fetch complete production order with relations
+    const completeProductionOrder = await ProductionOrder.findByPk(productionOrder.id, {
+      include: [
+        { model: Product, attributes: ['id', 'product_name', 'product_code'], required: false },
+        { model: ProductVariant, required: false },
+        { model: BOM, required: false },
+        { model: Branch, attributes: ['id', 'name'], required: false }
+      ]
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Production order created successfully',
+      data: { 
+        production_order: completeProductionOrder,
+        material_requirements: materialRequirements
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create production order',
+      error: error.message
+    });
+  }
+};
+
+const startProductionOrder = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const productionOrder = await ProductionOrder.findByPk(id, {
+      include: [{
+        model: BOM,
+        include: [{
+          model: BOMItem,
+          include: [{ model: RawMaterial }]
+        }]
+      }]
+    });
+
+    if (!productionOrder) {
+      return res.status(404).json({
+        success: false,
+        message: 'Production order not found'
+      });
+    }
+
+    if (productionOrder.status !== 'PLANNED') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only planned production orders can be started'
+      });
+    }
+
+    // Reserve raw materials
+    for (const bomItem of productionOrder.BOM.BOMItems) {
+      const requiredQuantity = bomItem.qty_per_unit * productionOrder.planned_qty;
+      let remainingQuantity = requiredQuantity;
+
+      console.log(`Checking stock for ${bomItem.RawMaterial.name}:`);
+      console.log(`  Required: ${requiredQuantity}`);
+
+      // Get available batches from ALL branches (FIFO - oldest first)
+      const availableBatches = await RawMaterialBatch.findAll({
+        where: {
+          raw_material_id: bomItem.raw_material_id,
+          qty: { [Op.gt]: 0 }
+        },
+        order: [['received_at', 'ASC']]
+      });
+
+      console.log(`  Found ${availableBatches.length} batches across all branches`);
+      const totalAvailable = availableBatches.reduce((sum, b) => sum + parseFloat(b.qty), 0);
+      console.log(`  Total available: ${totalAvailable}`);
+
+      for (const batch of availableBatches) {
+        if (remainingQuantity <= 0) break;
+
+        const consumeQuantity = Math.min(remainingQuantity, batch.qty);
+        
+        console.log(`  Consuming ${consumeQuantity} from batch ${batch.batch_code} (Branch: ${batch.branch_id})`);
+        
+        // Create consumption record
+        await ProductionConsumption.create({
+          production_order_id: productionOrder.id,
+          raw_material_id: bomItem.raw_material_id,
+          batch_id: batch.id,
+          qty: consumeQuantity,
+          unit_cost: batch.cost_per_unit
+        });
+
+        remainingQuantity -= consumeQuantity;
+      }
+
+      console.log(`  Remaining shortage: ${remainingQuantity}`);
+
+      if (remainingQuantity > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Insufficient stock for ${bomItem.RawMaterial.name}. Short by ${remainingQuantity} units.`
+        });
+      }
+    }
+
+    // Update production order status
+    await productionOrder.update({
+      status: 'IN_PROGRESS'
+    });
+
+    res.json({
+      success: true,
+      message: 'Production order started successfully',
+      data: { production_order: productionOrder }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to start production order',
+      error: error.message
+    });
+  }
+};
+
+const completeProductionOrder = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { produced_qty, consumption_data } = req.body;
+
+    const productionOrder = await ProductionOrder.findByPk(id, {
+      include: [
+        { model: ProductVariant },
+        { model: ProductionConsumption }
+      ]
+    });
+
+    if (!productionOrder) {
+      return res.status(404).json({
+        success: false,
+        message: 'Production order not found'
+      });
+    }
+
+    if (productionOrder.status !== 'IN_PROGRESS') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only in-progress production orders can be completed'
+      });
+    }
+
+    // Update consumption records - deduct from raw material batches
+    for (const consumptionRecord of productionOrder.ProductionConsumptions) {
+      const batch = await RawMaterialBatch.findByPk(consumptionRecord.batch_id);
+      if (batch) {
+        const newQuantity = batch.qty - consumptionRecord.qty;
+        await batch.update({ qty: Math.max(0, newQuantity) });
+      }
+    }
+
+    // Only create production output and update stock if variant_id exists
+    if (productionOrder.variant_id) {
+      // Create production output
+      await ProductionOutput.create({
+        production_order_id: productionOrder.id,
+        variant_id: productionOrder.variant_id,
+        qty: produced_qty,
+        unit_cost: 0 // Can be calculated later if needed
+      });
+
+      // Update finished goods stock
+      const existingStock = await FinishedGoodsStock.findOne({
+        where: {
+          variant_id: productionOrder.variant_id,
+          branch_id: productionOrder.branch_id
+        }
+      });
+
+      if (existingStock) {
+        await existingStock.update({
+          qty: existingStock.qty + produced_qty
+        });
+      } else {
+        await FinishedGoodsStock.create({
+          variant_id: productionOrder.variant_id,
+          branch_id: productionOrder.branch_id,
+          qty: produced_qty,
+          reserved_qty: 0
+        });
+      }
+    } else {
+      console.log('Warning: Production order has no variant_id, skipping finished goods stock update');
+    }
+
+    // Update production order status
+    await productionOrder.update({
+      status: 'COMPLETED',
+      produced_qty
+    });
+
+    res.json({
+      success: true,
+      message: productionOrder.variant_id 
+        ? 'Production order completed successfully' 
+        : 'Production order completed (no variant specified, finished goods not tracked)',
+      data: { production_order: productionOrder }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to complete production order',
+      error: error.message
+    });
+  }
+};
+
+const cancelProductionOrder = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    const productionOrder = await ProductionOrder.findByPk(id);
+    if (!productionOrder) {
+      return res.status(404).json({
+        success: false,
+        message: 'Production order not found'
+      });
+    }
+
+    if (productionOrder.status === 'COMPLETED' || productionOrder.status === 'CANCELLED') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot cancel completed or already cancelled production order'
+      });
+    }
+
+    // If order was in progress, release reserved materials
+    if (productionOrder.status === 'IN_PROGRESS') {
+      await ProductionConsumption.destroy({
+        where: { production_order_id: productionOrder.id }
+      });
+    }
+
+    await productionOrder.update({
+      status: 'CANCELLED'
+    });
+
+    res.json({
+      success: true,
+      message: 'Production order cancelled successfully',
+      data: { production_order: productionOrder }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to cancel production order',
+      error: error.message
+    });
+  }
+};
+
+module.exports = {
+  getAllProductionOrders: getProductionOrders,
+  getProductionOrders,
+  getProductionOrderById,
+  createProductionOrder,
+  updateProductionOrder: createProductionOrder, // Can reuse create for update logic
+  deleteProductionOrder: cancelProductionOrder,
+  startProductionOrder,
+  completeProductionOrder,
+  getProductionOrdersByProduct: getProductionOrders, // Can use same function with product filter
+  cancelProductionOrder
+};
