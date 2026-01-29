@@ -1,6 +1,7 @@
-const { ProductionOrder, Product, ProductVariant, BOM, BOMItem, RawMaterial, RawMaterialBatch, ProductionConsumption, ProductionOutput, FinishedGoodsStock, Branch, User } = require('../models');
+const { ProductionOrder, Product, ProductVariant, BOM, BOMItem, RawMaterial, RawMaterialBatch, ProductionConsumption, ProductionOutput, FinishedGoodsStock, FinishedGoodsStockMovement, Branch, User } = require('../models');
 const { Op } = require('sequelize');
 const { v4: uuidv4 } = require('uuid');
+const { fixCompletedProductionOrders } = require('../utils/fixCompletedProductionOrders');
 
 const getProductionOrders = async (req, res) => {
   try {
@@ -318,6 +319,7 @@ const completeProductionOrder = async (req, res) => {
 
     const productionOrder = await ProductionOrder.findByPk(id, {
       include: [
+        { model: Product },
         { model: ProductVariant },
         { model: ProductionConsumption }
       ]
@@ -346,8 +348,13 @@ const completeProductionOrder = async (req, res) => {
       }
     }
 
-    // Only create production output and update stock if variant_id exists
+    // Handle finished goods stock update
+    let stockUpdated = false;
+    
     if (productionOrder.variant_id) {
+      // Case 1: Production order has a specific variant
+      console.log(`Updating stock for variant: ${productionOrder.variant_id}`);
+      
       // Create production output
       await ProductionOutput.create({
         production_order_id: productionOrder.id,
@@ -376,8 +383,88 @@ const completeProductionOrder = async (req, res) => {
           reserved_qty: 0
         });
       }
-    } else {
-      console.log('Warning: Production order has no variant_id, skipping finished goods stock update');
+      
+      stockUpdated = true;
+    } else if (productionOrder.product_id) {
+      // Case 2: No specific variant, but we have a product - find or create a default variant
+      console.log(`No variant specified, looking for default variant for product: ${productionOrder.product_id}`);
+      
+      // Try to find an existing variant for this product
+      let defaultVariant = await ProductVariant.findOne({
+        where: { product_id: productionOrder.product_id },
+        order: [['created_at', 'ASC']] // Get the first/oldest variant as default
+      });
+      
+      if (!defaultVariant) {
+        // Create a default variant if none exists
+        console.log('Creating default variant for product');
+        defaultVariant = await ProductVariant.create({
+          product_id: productionOrder.product_id,
+          sku: `${productionOrder.Product.product_code}-DEFAULT`,
+          size: 'Standard',
+          color: 'Default',
+          price: productionOrder.Product.price || 0,
+          cost: productionOrder.Product.cost || 0
+        });
+      }
+      
+      console.log(`Using variant: ${defaultVariant.id} for stock update`);
+      
+      // Create production output with the default variant
+      await ProductionOutput.create({
+        production_order_id: productionOrder.id,
+        variant_id: defaultVariant.id,
+        qty: produced_qty,
+        unit_cost: 0
+      });
+
+      // Update finished goods stock
+      const existingStock = await FinishedGoodsStock.findOne({
+        where: {
+          variant_id: defaultVariant.id,
+          branch_id: productionOrder.branch_id
+        }
+      });
+
+      if (existingStock) {
+        await existingStock.update({
+          qty: existingStock.qty + produced_qty
+        });
+      } else {
+        await FinishedGoodsStock.create({
+          variant_id: defaultVariant.id,
+          branch_id: productionOrder.branch_id,
+          qty: produced_qty,
+          reserved_qty: 0
+        });
+      }
+      
+      // Update the production order with the variant_id for future reference
+      await productionOrder.update({
+        variant_id: defaultVariant.id
+      });
+      
+      stockUpdated = true;
+    }
+
+    // Create stock movement record for tracking
+    if (stockUpdated) {
+      const variantId = productionOrder.variant_id || (await ProductVariant.findOne({
+        where: { product_id: productionOrder.product_id },
+        order: [['created_at', 'ASC']]
+      }))?.id;
+      
+      if (variantId) {
+        await FinishedGoodsStockMovement.create({
+          variant_id: variantId,
+          branch_id: productionOrder.branch_id,
+          movement_type: 'PRODUCTION_IN',
+          qty: produced_qty,
+          reference_table: 'production_orders',
+          reference_id: productionOrder.id,
+          created_by: req.user?.id
+        });
+      }
     }
 
     // Update production order status
@@ -386,14 +473,17 @@ const completeProductionOrder = async (req, res) => {
       produced_qty
     });
 
+    const message = stockUpdated 
+      ? 'Production order completed successfully and finished goods added to stock'
+      : 'Production order completed (no product specified, finished goods not tracked)';
+
     res.json({
       success: true,
-      message: productionOrder.variant_id 
-        ? 'Production order completed successfully' 
-        : 'Production order completed (no variant specified, finished goods not tracked)',
+      message,
       data: { production_order: productionOrder }
     });
   } catch (error) {
+    console.error('Production completion error:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to complete production order',
@@ -447,6 +537,32 @@ const cancelProductionOrder = async (req, res) => {
   }
 };
 
+const fixHistoricalProductionOrders = async (req, res) => {
+  try {
+    const result = await fixCompletedProductionOrders();
+    
+    if (result.success) {
+      res.json({
+        success: true,
+        message: `Successfully fixed ${result.fixedCount} production orders`,
+        data: { fixedCount: result.fixedCount }
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        message: 'Failed to fix production orders',
+        error: result.error
+      });
+    }
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fix production orders',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getAllProductionOrders: getProductionOrders,
   getProductionOrders,
@@ -457,5 +573,6 @@ module.exports = {
   startProductionOrder,
   completeProductionOrder,
   getProductionOrdersByProduct: getProductionOrders, // Can use same function with product filter
-  cancelProductionOrder
+  cancelProductionOrder,
+  fixHistoricalProductionOrders
 };
