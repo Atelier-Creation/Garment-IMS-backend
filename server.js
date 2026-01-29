@@ -21,11 +21,11 @@ app.use(helmet());
 app.use(compression());
 
 /* ==============================
-   CORS (SINGLE, CORRECT CONFIG)
+   CORS (FINAL & CORRECT)
 ================================ */
 const allowedOrigins = (process.env.CORS_ORIGINS || '')
   .split(',')
-  .map(o => o.trim())
+  .map(o => o.trim().replace(/\/$/, '')) // 🔥 remove trailing slash
   .filter(Boolean);
 
 const corsOptions = {
@@ -33,11 +33,13 @@ const corsOptions = {
     // Allow Postman / server-to-server
     if (!origin) return callback(null, true);
 
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, origin); // ✅ exactly ONE origin
+    const cleanOrigin = origin.replace(/\/$/, '');
+
+    if (allowedOrigins.includes(cleanOrigin)) {
+      return callback(null, cleanOrigin); // ✅ exactly ONE origin
     }
 
-    // ❗ Do NOT throw error (causes missing CORS headers)
+    // ❗ Never throw error → causes missing CORS headers
     return callback(null, false);
   },
   credentials: true,
@@ -45,10 +47,10 @@ const corsOptions = {
   allowedHeaders: ['Content-Type', 'Authorization']
 };
 
-// Apply CORS to ALL requests
+// Apply CORS to all requests
 app.use(cors(corsOptions));
 
-// Apply SAME CORS config to preflight
+// Apply SAME CORS config to OPTIONS (preflight)
 app.options('*', cors(corsOptions));
 
 /* ==============================
@@ -72,7 +74,7 @@ if (process.env.NODE_ENV === 'development') {
 const limiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
   max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
-  skip: (req) => req.method === 'OPTIONS', // 🔥 IMPORTANT
+  skip: (req) => req.method === 'OPTIONS', // 🔥 never block preflight
   standardHeaders: true,
   legacyHeaders: false,
   message: 'Too many requests from this IP, please try again later.'
