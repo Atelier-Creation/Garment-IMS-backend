@@ -21,10 +21,24 @@ app.use(helmet());
 app.use(compression());
 
 /* ==============================
-   CORS (MUST COME FIRST)
+   CORS (FIXED — SINGLE ORIGIN)
 ================================ */
+const allowedOrigins = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean);
+
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
+  origin: (origin, callback) => {
+    // Allow server-to-server / Postman
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, origin); // ✅ ONLY ONE ORIGIN
+    }
+
+    return callback(new Error(`CORS blocked for origin: ${origin}`));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -54,7 +68,7 @@ if (process.env.NODE_ENV === 'development') {
 const limiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
   max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
-  skip: (req) => req.method === 'OPTIONS', // 🔥 IMPORTANT
+  skip: (req) => req.method === 'OPTIONS',
   standardHeaders: true,
   legacyHeaders: false,
   message: 'Too many requests from this IP, please try again later.'
@@ -95,7 +109,7 @@ app.use(notFound);
 app.use(errorHandler);
 
 /* ==============================
-   Server Start (SAFE)
+   Server Start
 ================================ */
 const startServer = async () => {
   try {
@@ -103,13 +117,11 @@ const startServer = async () => {
     console.log('✅ Database connected successfully');
   } catch (error) {
     console.error('⚠️ Database connection failed:', error.message);
-    console.error('⚠️ Server will continue without DB');
+    console.error('⚠️ Server running without DB');
   }
 
   app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
-    console.log(`🔍 Health: /health`);
-    console.log(`📦 API: /api`);
   });
 };
 
