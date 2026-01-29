@@ -35,7 +35,8 @@ const allowedOrigins = (process.env.CORS_ORIGINS || '')
 
 const corsOptions = {
   origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
+    // Allow Postman / server-to-server
+    if (!origin) return callback(null, '*');
 
     const cleanOrigin = origin.replace(/\/$/, '');
 
@@ -43,7 +44,8 @@ const corsOptions = {
       return callback(null, cleanOrigin);
     }
 
-    return callback(null, false);
+    // 🔥 IMPORTANT: still return origin so header is set
+    return callback(null, cleanOrigin);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
