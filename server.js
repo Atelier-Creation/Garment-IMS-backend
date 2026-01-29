@@ -9,14 +9,13 @@ const rateLimit = require('express-rate-limit');
 const { sequelize } = require('./src/models');
 const routes = require('./src/routes');
 const { errorHandler, notFound } = require('./src/middleware/errorMiddleware');
-const { auditLogger } = require('./src/middleware/auditMiddleware');
 
 const app = express();
 
 /* ==============================
-   TRUST PROXY (🔥 REQUIRED ON RENDER)
+   TRUST PROXY (REQUIRED ON RENDER)
 ================================ */
-app.set('trust proxy', 1); // ✅ fixes X-Forwarded-For + rate-limit
+app.set('trust proxy', 1);
 
 const PORT = process.env.PORT || 3000;
 
@@ -31,21 +30,19 @@ app.use(compression());
 ================================ */
 const allowedOrigins = (process.env.CORS_ORIGINS || '')
   .split(',')
-  .map(o => o.trim().replace(/\/$/, '')) // remove trailing slash
+  .map(o => o.trim().replace(/\/$/, ''))
   .filter(Boolean);
 
 const corsOptions = {
   origin: (origin, callback) => {
-    // Allow Postman / server-to-server
     if (!origin) return callback(null, true);
 
     const cleanOrigin = origin.replace(/\/$/, '');
 
     if (allowedOrigins.includes(cleanOrigin)) {
-      return callback(null, cleanOrigin); // ✅ ONE origin only
+      return callback(null, cleanOrigin);
     }
 
-    // ❗ Do NOT throw error → avoids missing CORS headers
     return callback(null, false);
   },
   credentials: true,
@@ -53,10 +50,7 @@ const corsOptions = {
   allowedHeaders: ['Content-Type', 'Authorization']
 };
 
-// Apply CORS to all requests
 app.use(cors(corsOptions));
-
-// Apply SAME CORS config to preflight
 app.options('*', cors(corsOptions));
 
 /* ==============================
@@ -75,12 +69,12 @@ if (process.env.NODE_ENV === 'development') {
 }
 
 /* ==============================
-   Rate Limiting (AFTER CORS)
+   Rate Limiting
 ================================ */
 const limiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
   max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
-  skip: (req) => req.method === 'OPTIONS', // 🔥 never block preflight
+  skip: (req) => req.method === 'OPTIONS',
   standardHeaders: true,
   legacyHeaders: false,
   message: 'Too many requests from this IP, please try again later.'
@@ -98,16 +92,6 @@ app.get('/health', (req, res) => {
     uptime: process.uptime()
   });
 });
-
-/* ==============================
-   Audit Logger
-================================ */
-app.use('/api', auditLogger({
-  excludePaths: ['/health', '/api/auth/profile', '/api/audit-logs'],
-  excludeMethods: ['GET'],
-  includeRequestBody: true,
-  includeResponseBody: false
-}));
 
 /* ==============================
    Routes
