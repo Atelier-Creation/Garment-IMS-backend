@@ -307,7 +307,7 @@ const purchaseOrderInwardController = {
           raw_material_id: orderItem.raw_material_id,
           raw_material_batch_id: batch.id,
           branch_id: purchaseOrder.branch_id,
-          movement_type: 'inward',
+          movement_type: 'IN',
           quantity: received_quantity,
           unit_cost: finalCostPerUnit,
           total_cost: received_quantity * finalCostPerUnit,
@@ -423,7 +423,7 @@ const purchaseOrderInwardController = {
         where: { 
           reference_type: 'purchase_order',
           reference_id: id,
-          movement_type: 'inward'
+          movement_type: 'IN'
         },
         include: [
           { 

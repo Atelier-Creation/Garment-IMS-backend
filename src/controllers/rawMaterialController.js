@@ -348,9 +348,9 @@ const adjustRawMaterialStock = async (req, res) => {
 
     // Calculate new quantity
     let newQuantity = batch.qty || 0;
-    if (movement_type === 'in' || movement_type === 'inward') {
+    if (movement_type === 'in') {
       newQuantity += quantity;
-    } else if (movement_type === 'out' || movement_type === 'outward') {
+    } else if (movement_type === 'out') {
       if (quantity > newQuantity) {
         return res.status(400).json({
           success: false,
@@ -373,7 +373,7 @@ const adjustRawMaterialStock = async (req, res) => {
       raw_material_id: id,
       raw_material_batch_id: batch_id,
       branch_id: batch.branch_id,
-      movement_type: movement_type === 'in' ? 'inward' : 'outward',
+      movement_type: movement_type === 'in' ? 'IN' : 'OUT',
       quantity,
       reason,
       notes,
@@ -387,7 +387,7 @@ const adjustRawMaterialStock = async (req, res) => {
         batchId: batch_id,
         oldQuantity: batch.qty,
         newQuantity: newQuantity,
-        adjustment: movement_type === 'in' || movement_type === 'inward' ? quantity : -quantity
+        adjustment: movement_type === 'in' ? quantity : -quantity
       }
     });
   } catch (error) {

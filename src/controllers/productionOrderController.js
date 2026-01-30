@@ -458,7 +458,7 @@ const completeProductionOrder = async (req, res) => {
         await FinishedGoodsStockMovement.create({
           variant_id: variantId,
           branch_id: productionOrder.branch_id,
-          movement_type: 'PRODUCTION_IN',
+          movement_type: 'PRODUCTION_OUTPUT',
           qty: produced_qty,
           reference_table: 'production_orders',
           reference_id: productionOrder.id,
