@@ -1,4 +1,4 @@
-const { ProductionOrder, Product, ProductVariant, BOM, BOMItem, RawMaterial, RawMaterialBatch, ProductionConsumption, ProductionOutput, FinishedGoodsStock, FinishedGoodsStockMovement, Branch, User } = require('../models');
+const { ProductionOrder, Product, ProductVariant, BOM, BOMItem, RawMaterial, RawMaterialBatch, RawMaterialStockMovement, ProductionConsumption, ProductionOutput, FinishedGoodsStock, FinishedGoodsStockMovement, Branch, User } = require('../models');
 const { Op } = require('sequelize');
 const { v4: uuidv4 } = require('uuid');
 const { fixCompletedProductionOrders } = require('../utils/fixCompletedProductionOrders');
@@ -345,6 +345,18 @@ const completeProductionOrder = async (req, res) => {
       if (batch) {
         const newQuantity = batch.qty - consumptionRecord.qty;
         await batch.update({ qty: Math.max(0, newQuantity) });
+        
+        // Create raw material stock movement record for production consumption
+        await RawMaterialStockMovement.create({
+          raw_material_id: consumptionRecord.raw_material_id,
+          raw_material_batch_id: consumptionRecord.batch_id,
+          branch_id: productionOrder.branch_id,
+          movement_type: 'OUT',
+          qty: consumptionRecord.qty,
+          reference_table: 'production_orders',
+          reference_id: productionOrder.id,
+          created_by: req.user?.id
+        });
       }
     }
 
