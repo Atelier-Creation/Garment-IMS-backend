@@ -340,13 +340,16 @@ const receivePurchaseOrder = async (req, res) => {
       });
 
       // Update order item received quantity
-      const newReceivedQuantity = (orderItem.received_quantity || 0) + receivedItem.received_quantity;
+      const currentReceived = parseFloat(orderItem.received_quantity || 0);
+      const newReceived = parseFloat(receivedItem.received_quantity);
+      const totalReceived = currentReceived + newReceived;
+      
       await orderItem.update({
-        received_quantity: newReceivedQuantity
+        received_quantity: totalReceived
       });
       
       // Update the in-memory object for status calculation
-      orderItem.received_quantity = newReceivedQuantity;
+      orderItem.received_quantity = totalReceived;
     }
 
     // Update purchase order status
