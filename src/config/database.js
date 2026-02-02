@@ -3,10 +3,10 @@ require('dotenv').config();
 module.exports = {
   development: {
     username: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || 'root',
+    password: process.env.DB_PASSWORD || 'mpiahfLGTMMHCypsApxsLStLgVuWPKUT',
     database: process.env.DB_NAME || 'garment_ims',
-    host: process.env.DB_HOST || 'localhost',
-    port: process.env.DB_PORT || 3306,
+    host: process.env.DB_HOST || 'turntable.proxy.rlwy.net',
+    port: process.env.DB_PORT || 34647,
     dialect: 'mysql',
     dialectOptions: {
     ssl: {

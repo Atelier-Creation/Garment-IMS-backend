@@ -340,9 +340,13 @@ const receivePurchaseOrder = async (req, res) => {
       });
 
       // Update order item received quantity
+      const newReceivedQuantity = (orderItem.received_quantity || 0) + receivedItem.received_quantity;
       await orderItem.update({
-        received_quantity: (orderItem.received_quantity || 0) + receivedItem.received_quantity
+        received_quantity: newReceivedQuantity
       });
+      
+      // Update the in-memory object for status calculation
+      orderItem.received_quantity = newReceivedQuantity;
     }
 
     // Update purchase order status
@@ -354,10 +358,23 @@ const receivePurchaseOrder = async (req, res) => {
       status: allItemsReceived ? 'RECEIVED' : 'PARTIAL'
     });
 
+    // Fetch updated purchase order with all relations
+    const updatedPurchaseOrder = await PurchaseOrder.findByPk(purchaseOrder.id, {
+      include: [
+        { model: Supplier },
+        { model: Branch },
+        { model: User, attributes: ['id', 'full_name'] },
+        {
+          model: PurchaseOrderItem,
+          include: [{ model: RawMaterial }]
+        }
+      ]
+    });
+
     res.json({
       success: true,
       message: 'Purchase order received successfully',
-      data: { purchase_order: purchaseOrder }
+      data: { purchase_order: updatedPurchaseOrder }
     });
   } catch (error) {
     res.status(500).json({
